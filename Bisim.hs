@@ -17,14 +17,27 @@ class (Show p, Ord p) => Proc p where
 p ~~ q =
   rep rel p == rep rel q
  where
-  top = explore S.empty [p,q]
+  top = explore (-1) S.empty [p,q]
   rel = fix id refRel [top]    -- N.b.: not fix length!
 
-explore :: Proc p => Set p -> [p] -> Set p
-explore seen []       = seen
-explore seen (p:ps)
-  | p `S.member` seen = explore seen ps
-  | otherwise         = explore (p `S.insert` seen) (map snd (step p) ++ ps)
+ork = 1000
+
+(~^~) :: (Proc p, Ord (Event p)) => p -> p -> Property
+p ~^~ q
+  | S.size top < ork =
+      property $ rep rel p == rep rel q
+  | otherwise = 
+      False ==> True
+ where
+  top = explore ork S.empty [p,q]
+  rel = fix id refRel [top]    -- N.b.: not fix length!
+
+explore :: Proc p => Int -> Set p -> [p] -> Set p
+explore 0 seen _        = seen
+explore n seen []       = seen
+explore n seen (p:ps)
+  | p `S.member` seen = explore n seen ps
+  | otherwise         = explore (n-1) (p `S.insert` seen) (map snd (step p) ++ ps)
 
 refClass :: (Proc p, Ord (Event p)) => (p -> p) -> Set p -> [Set p]
 refClass currrep ps =
@@ -166,33 +179,59 @@ atCCSEvent :: At Msg
 atCCSEvent = id
 
 prop_Refl p =
-  p ~~ p
+  p ~^~ p
 
 prop_Plus_Nil p =
-  (Nil :+: p) ~~ p
+  (Nil :+: p) ~^~ p
 
 prop_Par_Nil p =
-  (Nil :|: p) ~~ p
+  (Nil :|: p) ~^~ p
+
+-- this is very slow to test!
+prop_Par_commutes p q =
+  (p :|: q) ~^~ (q :|: p)
+
+prop_Par_commutes_state_space p q =
+  collect (S.size $ explore (-1) S.empty [p :|: q,q :|: p]) True
+
+prop_Par_associates p q r =
+  (p :|: (q :|: r)) ~^~ ((p :|: q) :|: r)
 
 prop_Wrong p q =
   expectFailure $
-    p ~~ q
+    p ~^~ q
 
 prop_Wrong2 m p q =
   expectFailure $
-    Act m (p :+: q) ~~ (Act m p :+: Act m q)
+    Act m (p :+: q) ~^~ (Act m p :+: Act m q)
 
 prop_Wrong3 m p q =
   expectFailure $
-    Act m (p :|: q) ~~ (Act m p :|: Act m q)
+    Act m (p :|: q) ~^~ (Act m p :|: Act m q)
+
+prop_Wrong4 p q r s =
+  (p :|: (q :|: (r :|: s))) ~^~ ((p :|: q) :|: r)
+  
+prop_Wrong5 p q r s =
+  (p :|: (q :|: (r :+: s))) ~~ (p :|: ((q :|: r) :+: (q :|: s)))
+
+prop_Wrong6 p q r =
+  (p' :|: q') ~^~ (p' :|: r')
+  where p' = iterate (Act (Out 'a')) p !! hard
+        q' = iterate (Act (In 'a') Nil :|:) q !! hard
+        r' = iterate (Act (In 'a') Nil :|:) r !! hard
+        hard = 10
 
 runPTests = do
     atP qc prop_Refl
     qc prop_Plus_Nil
     qc prop_Par_Nil
+    qc prop_Par_commutes
+--    qc prop_Par_commutes_state_space
+    qc prop_Par_associates
     atP qc prop_Wrong
     qc prop_Wrong2
     qc prop_Wrong3
-  where
-    qc :: Testable a => a -> IO ()
-    qc = quickCheckWith stdArgs{maxSuccess=1000}
+
+qc :: Testable a => a -> IO ()
+qc = quickCheckWith stdArgs{maxSuccess=1000}
