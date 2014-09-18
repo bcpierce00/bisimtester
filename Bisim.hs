@@ -96,12 +96,26 @@ instance Arbitrary Msg where
                    [ In a'  | a' <- shrink a ]
   shrink (Out a) = [ Out a' | a' <- shrink a ]
 
-type CCSEvent
-  = Maybe Msg
+data CCSEvent
+  = Do Msg | Tau
+  deriving (Eq, Ord)
+
+instance Show CCSEvent where
+  show Tau = "_."
+  show (Do m) = show m  
+
+instance Arbitrary CCSEvent where
+  arbitrary = frequency [(1,return Tau),(3,arbitrary)]
+  shrink Tau = []
+  shrink (Do m) = Tau : map Do (shrink m)
+
+matches Tau _ = False
+matches _ Tau = False
+matches (Do a) (Do b) = a == dual b
 
 data P
   = Nil
-  | Act Msg P
+  | Act CCSEvent P
   | P :+: P
   | P :|: P
  deriving ( Eq, Ord )
@@ -149,16 +163,16 @@ instance Proc P where
     []
 
   step (Act m p) =
-    [(Just m, p)]
+    [(m, p)]
 
   step (p :+: q) =
     step p ++ step q
 
   step (p :|: q) =
-    [ (Nothing, p' :|: q')
-    | (Just a, p') <- ps
-    , (Just b, q') <- qs
-    , a == dual b
+    [ (Tau, p' :|: q')
+    | (a, p') <- ps
+    , (b, q') <- qs
+    , matches a b
     ] ++
     [ (m, p' :|: q)
     | (m, p') <- ps
@@ -217,9 +231,9 @@ prop_Wrong5 p q r s =
 
 prop_Wrong6 p q r =
   (p' :|: q') ~^~ (p' :|: r')
-  where p' = iterate (Act (Out 'a')) p !! hard
-        q' = iterate (Act (In 'a') Nil :|:) q !! hard
-        r' = iterate (Act (In 'a') Nil :|:) r !! hard
+  where p' = iterate (Act (Do (Out 'a'))) p !! hard
+        q' = iterate (Act (Do (In 'a')) Nil :|:) q !! hard
+        r' = iterate (Act (Do (In 'a')) Nil :|:) r !! hard
         hard = 10
 
 runPTests = do
@@ -235,3 +249,41 @@ runPTests = do
 
 qc :: Testable a => a -> IO ()
 qc = quickCheckWith stdArgs{maxSuccess=1000}
+
+
+--- normalization of P
+
+norm :: Int -> P -> P
+norm 0 _ = Nil
+norm n p 
+  | null ps = Nil
+  | otherwise = 
+      foldr1 (:+:) (map head . group . sort $ 
+                    [Act m (norm (n-1) q) | (m,q) <- ps])
+  where ps = step p
+
+prop_norm p q =
+  (p ~~ q) == (norm (-1) p == norm (-1) q)
+
+prop_norm_implies_bisim p q =
+  norm 12 p == norm 12 q ==> p ~^~ q
+
+{-
+
+Experiments show that normalizing a process is too expensive. We
+reasoned that, if we represent equivalence classes with unknown
+members, then we must characterize the behaviour of those unknown
+members with something equivalent to a
+normalization-up-to-a-fixed-depth of the processes. This suggests that
+using an exact equivalence relation is going to be too expensive.
+
+So... suppose we do weaken the requirement that we are working with an
+equivalence relation. An ER gives us a partition of the state space,
+but suppose we settled for a covering of the state space instead? Then
+when comparing two states, we would have ask not "do they have the
+same representative", but "is there a set in the covering containing
+both"? This is more expensive, but not catastrophically so... and we
+hope may let us work with a restricted subset of the state space. The
+next thing to try.
+
+-}
