@@ -286,4 +286,10 @@ both"? This is more expensive, but not catastrophically so... and we
 hope may let us work with a restricted subset of the state space. The
 next thing to try.
 
--}
+Additional thoughts (19/9): normalizing by floating Alts to the top is
+stupid: we know Par will blow up that way. Can we "normalize" by
+keeping Par at the top instead? We wouldn't get unique normal forms,
+but maybe we can cope with that. The idea is to represent a set of
+"non racing" events that a process can do in any order.
+
+  -}
