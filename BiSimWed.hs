@@ -331,4 +331,9 @@ dot t = do
   system "dot -Tjpg -O tree.dot"
   system "tree.dot.jpg"
 
-dot' _ t = "node [];\n"
+dot' i (Node eps) =
+  "node"++show i++" [shape=point,label=\"\"];\n" ++
+  concat [ dot' (100*i+j) p++
+           "node"++show i++" -> node"++show (100*i+j)++"[label=\""++show e++"\"];\n"
+         | (j,(e,p)) <- zip [1..] eps
+         ]
