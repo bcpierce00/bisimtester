@@ -9,6 +9,8 @@ import qualified Data.Map as M
 import qualified Data.Set as S
 import Data.Set( Set )
 import System.Cmd
+import Data.Tree
+import Data.Tree.Pretty
 
 class (Show p, Ord p) => Proc p where 
   type Event p
@@ -309,19 +311,32 @@ but maybe we can cope with that. The idea is to represent a set of
 
   -}
 
-data Tree = Node [(CCSEvent,Tree)]
+data LTS = N [(CCSEvent,LTS)]
   deriving Show
 
-unfold p = Node $ [(e,unfold p') | (e,p') <- step p]
+unfold p = N $ [(e,unfold p') | (e,p') <- step p]
 
-prune 0 (Node eps) = Node []
-prune d (Node eps) = Node [(e,prune (if e==Tau then d else d-1) p') | (e,p')<-eps]
+prune 0 (N eps) = N []
+prune d (N eps) = N [(e,prune (if e==Tau then d else d-1) p') | (e,p')<-eps]
 
 blur t = blur' t
-  where blur' 0 (Node eps) = Node []
-        blur' t' (Node eps) = Node [(e,blur' (if e==Tau then (t'-1) else t) p') | (e,p') <- eps]
+  where blur' 0 (N eps) = N []
+        blur' t' (N eps) = N [(e,blur' (if e==Tau then (t'-1) else t) p') | (e,p') <- eps]
 
 tree d t p = prune d $ blur t $ unfold p
+
+drawAct Tau = "tau"
+drawAct (Do (Out a)) = a : "!"
+drawAct (Do (In a)) = a : "?"
+
+treeOf = treeOf' ""
+  where treeOf' l (N eps) = Node l [ treeOf' (drawAct e') p' | (e',p') <- eps ] 
+
+draw d t p = putStr $ drawTree $ treeOf $ tree d t p
+
+p1 = (Act Tau (Act Tau Nil))
+p2 = Star (Act Tau (Act (Do (Out 'a')) Nil))
+p3 = Star (Act Tau (Act Tau (Act (Do (Out 'a')) Nil)))
 
 -- draw trees
 
@@ -332,3 +347,4 @@ dot t = do
   system "tree.dot.jpg"
 
 dot' _ t = "node [];\n"
+
