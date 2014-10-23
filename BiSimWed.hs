@@ -311,19 +311,51 @@ but maybe we can cope with that. The idea is to represent a set of
 
   -}
 
-data LTS = N [(CCSEvent,LTS)]
-  deriving Show
+data LTS = CutOff | N [(CCSEvent,LTS)]
+  deriving (Eq, Ord, Show)
 
 unfold p = N $ [(e,unfold p') | (e,p') <- step p]
 
-prune 0 (N eps) = N []
+prune 0 (N eps) = CutOff
 prune d (N eps) = N [(e,prune (if e==Tau then d else d-1) p') | (e,p')<-eps]
 
 blur t = blur' t
   where blur' 0 (N eps) = N []
         blur' t' (N eps) = N [(e,blur' (if e==Tau then (t'-1) else t) p') | (e,p') <- eps]
 
-tree d t p = prune d $ blur t $ unfold p
+canonize CutOff  = CutOff
+canonize (N eps) = 
+         case eps' of
+           [(Tau,p)] -> p
+           _         -> 
+             case [p | (Tau,p) <- eps',
+                       p `canDo` (eps'\\[(Tau,p)])] of
+               []  -> N eps'
+               [p] -> p
+  where eps' = usort [(e,canonize p) | (e,p) <- eps]
+
+CutOff `canDo` _ = True
+N eps `canDo` eps' = null (eps' \\ eps)
+  
+
+tree d t p = canonize $ prune d $ blur t $ unfold p
+
+usort xs = usort' (sort xs)
+  where usort' (x:y:xs) | x==y = usort' (y:xs)
+        usort' (x:xs)          = x:usort' xs
+        usort' []              = []
+
+cutoffs CutOff = [[]]
+cutoffs (N eps) = 
+  [ e:es
+  | (e,p) <- eps,
+    es <- cutoffs p ]
+
+cutoff ps _ | [] `elem` ps = CutOff
+cutoff ps CutOff           = CutOff
+cutoff ps (N eps)          =
+  N [ (e,cutoff [es | e':es <- ps, e'==e] p)
+    | (e,p) <- eps ]
 
 drawAct Tau = "tau"
 drawAct (Do (Out a)) = a : "!"
@@ -340,15 +372,17 @@ p3 = Star (Act Tau (Act Tau (Act (Do (Out 'a')) Nil)))
 
 -- draw trees
 
-dot t = do
-  writeFile "tree.dot" $
-    "digraph{\n"++dot' 1 t++"}\n"
-  system "dot -Tjpg -O tree.dot"
-  system "tree.dot.jpg"
+dot title t = do
+  writeFile ("tree"++title++".dot") $
+    "digraph{\nlabel=\""++title++"\";\nlabelloc=t;\n"++dot' 1 t++"}\n"
+  system $ "dot -Tjpg -O tree"++title++".dot"
+  system $ "tree"++title++".dot.jpg"
 
-dot' i (Node eps) =
+dot' i (N eps) =
   "node"++show i++" [shape=point,label=\"\"];\n" ++
   concat [ dot' (100*i+j) p++
            "node"++show i++" -> node"++show (100*i+j)++"[label=\""++show e++"\"];\n"
          | (j,(e,p)) <- zip [1..] eps
          ]
+dot' i CutOff =
+  "node"++show i++" [shape=triangle,label=\"...\"];\n"
